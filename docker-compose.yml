@@ -1,0 +1,84 @@
+services:
+  postgresql:
+    container_name: authentik-postgres
+    environment:
+       - POSTGRES_DB=${PG_DB_NAME}
+       - POSTGRES_PASSWORD=${PG_PASSWORD}
+       - POSTGRES_USER=${PG_USER}
+    healthcheck:
+      interval: 30s
+      retries: 5
+      start_period: 20s
+      test:
+      - CMD-SHELL
+      - pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}
+      timeout: 5s
+    image: docker.io/library/postgres:16-alpine
+    restart: unless-stopped
+    networks: 
+      - default
+    volumes:
+     - database:/var/lib/postgresql/data
+  server:
+    container_name: authentik-server
+    command: server
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      - AUTHENTIK_POSTGRESQL__HOST=postgresql
+      - AUTHENTIK_POSTGRESQL__NAME=${PG_DB_NAME}
+      - AUTHENTIK_POSTGRESQL__PASSWORD=${PG_PASSWORD}
+      - AUTHENTIK_POSTGRESQL__USER=${PG_USER}
+      - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY}
+      - AUTHENTIK_ERROR_REPORTING__ENABLED=true
+    image: ghcr.io/goauthentik/server:2026.5.3
+# Uncomment the labels below to use Traefik otherwise you need to add in ports to expose outside of Docker
+#    labels:
+#      - traefik.enable=true
+#      - traefik.http.routers.authentik.tls=true
+#      - traefik.http.routers.authentik.tls.certresolver=cloudflare # Enter your cert resolver name
+#      - traefik.http.routers.authentik.entrypoints=websecure
+#      - traefik.http.routers.authentik.service=authentik
+#      - traefik.http.services.authentik.loadbalancer.server.port=9000
+#      - traefik.http.routers.authentik.rule=Host(`authentik.host.yourdomain.com`)
+#      - traefik.docker.network=frontend # Enter your traefik network
+    restart: unless-stopped
+    networks: 
+      - default
+      - frontend # Input your Traefik External Network; Remove if not
+    shm_size: 512mb
+    volumes:
+    - ${AUTH_PATH}/data:/data
+    - ${AUTH_PATH}/custom-templates:/templates
+  worker:
+    container_name: authentik-worker-lab2
+    command: worker
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    environment:
+      - AUTHENTIK_POSTGRESQL__HOST=postgresql
+      - AUTHENTIK_POSTGRESQL__NAME=${PG_DB_NAME}
+      - AUTHENTIK_POSTGRESQL__PASSWORD=${PG_PASSWORD}
+      - AUTHENTIK_POSTGRESQL__USER=${PG_USER}
+      - AUTHENTIK_SECRET_KEY=${AUTHENTIK_SECRET_KEY}
+      - AUTHENTIK_ERROR_REPORTING__ENABLED=true
+    image: ghcr.io/goauthentik/server:2026.5.3
+    restart: unless-stopped
+    networks: 
+       - default
+    shm_size: 512mb
+    user: root
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    - ${AUTH_PATH}/data:/data
+    - ${AUTH_PATH}/certs:/certs
+    - ${AUTH_PATH}/custom-templates:/templates
+volumes:
+  database:
+    driver: local
+networks:
+  default:
+  frontend: # Input your Traefik External Network; Remove if not
+    external: true
